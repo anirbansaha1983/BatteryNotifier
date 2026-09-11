@@ -11,9 +11,46 @@ Monitors the system battery and sends a desktop notification when:
 pip install -r requirements.txt
 ```
 
-On Linux, desktop notifications use `notify-send` (`libnotify-bin`); on macOS
-`osascript`; on Windows `plyer`. If no backend is available the alert is printed
-to the console.
+Notification backends, tried in order per platform (first success wins; the
+alert is always echoed to the console too):
+
+| Platform | Backends |
+| --- | --- |
+| Windows | `win11toast` → `winotify` → `plyer` → built-in PowerShell toast |
+| macOS | `osascript` → `plyer` |
+| Linux | `notify-send` (`libnotify-bin`) → `plyer` |
+
+Verify your setup with:
+
+```bash
+python battery_notifier.py --test-notification
+```
+
+## Windows: auto-start at login
+
+```powershell
+pip install -r requirements.txt
+powershell -ExecutionPolicy Bypass -File .\windows\install_task.ps1
+```
+
+- `windows\run_battery_notifier.bat` — launches the monitor with `pythonw.exe`
+  so there is **no console window**. Edit the `LOW` / `HIGH` / `INTERVAL` /
+  `REPEAT_AFTER` variables at the top to tune it. Double-click to run manually.
+- `windows\install_task.ps1` — registers a **Task Scheduler** job that runs the
+  `.bat` at logon (1-minute delay), hidden, allowed to start and keep running on
+  battery, with automatic restart on failure.
+
+Useful follow-ups:
+
+```powershell
+Start-ScheduledTask -TaskName BatteryNotifier          # start now
+Get-ScheduledTask   -TaskName BatteryNotifier          # check state
+powershell -ExecutionPolicy Bypass -File .\windows\install_task.ps1 -Uninstall
+```
+
+Prefer a GUI? Task Scheduler → *Create Task* → Triggers: *At log on* → Actions:
+*Start a program* → `cmd.exe` with argument `/c "C:\path\to\windows\run_battery_notifier.bat"`
+→ Conditions: untick *Start the task only if the computer is on AC power*.
 
 ## Usage
 
@@ -31,6 +68,7 @@ python battery_notifier.py -v                     # debug logging
 | `--interval` | 60 | Seconds between checks |
 | `--repeat-after` | 0 | Minimum seconds between repeats of the same alert (0 = notify on every check) |
 | `--once` | off | Check once and exit |
+| `--test-notification` | off | Send a sample notification and exit |
 
 ### Repeat behaviour
 

@@ -88,24 +88,79 @@ def _notify_linux(title: str, message: str) -> bool:
     return subprocess.call(["notify-send", title, message]) == 0
 
 
-def _notify_windows(title: str, message: str) -> bool:
+APP_NAME = "Battery Notifier"
+
+
+def _notify_win11toast(title: str, message: str) -> bool:
+    """Modern Windows 10/11 toast via win11toast (WinRT-backed)."""
     try:
-        from plyer import notification  # type: ignore
+        from win11toast import toast  # type: ignore
     except Exception:
         return False
     try:
-        notification.notify(title=title, message=message, timeout=10)
+        toast(title, message, app_id=APP_NAME, duration="short")
         return True
+    except Exception as exc:
+        LOG.debug("win11toast failed: %s", exc)
+        return False
+
+
+def _notify_winotify(title: str, message: str) -> bool:
+    """Windows 10/11 toast via winotify (pure-Python, no WinRT needed)."""
+    try:
+        from winotify import Notification, audio  # type: ignore
     except Exception:
+        return False
+    try:
+        t = Notification(app_id=APP_NAME, title=title, msg=message)
+        try:
+            t.set_audio(audio.Default, loop=False)
+        except Exception:
+            pass
+        t.show()
+        return True
+    except Exception as exc:
+        LOG.debug("winotify failed: %s", exc)
+        return False
+
+
+def _notify_powershell(title: str, message: str) -> bool:
+    """Last-resort Windows toast using built-in PowerShell + WinRT APIs."""
+    powershell = shutil.which("powershell") or shutil.which("pwsh")
+    if not powershell:
+        return False
+    safe_title = title.replace("'", "''")
+    safe_message = message.replace("'", "''")
+    script = (
+        "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications,"
+        " ContentType=WindowsRuntime] > $null;"
+        "$t=[Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent("
+        "[Windows.UI.Notifications.ToastTemplateType]::ToastText02);"
+        "$n=$t.GetElementsByTagName('text');"
+        f"$n.Item(0).AppendChild($t.CreateTextNode('{safe_title}')) > $null;"
+        f"$n.Item(1).AppendChild($t.CreateTextNode('{safe_message}')) > $null;"
+        "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("
+        f"'{APP_NAME}').Show([Windows.UI.Notifications.ToastNotification]::new($t));"
+    )
+    try:
+        return subprocess.call(
+            [powershell, "-NoProfile", "-NonInteractive", "-Command", script],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        ) == 0
+    except Exception as exc:
+        LOG.debug("powershell toast failed: %s", exc)
         return False
 
 
 def _notify_plyer(title: str, message: str) -> bool:
     try:
         from plyer import notification  # type: ignore
-        notification.notify(title=title, message=message, timeout=10)
+        notification.notify(title=title, message=message,
+                            app_name=APP_NAME, timeout=10)
         return True
-    except Exception:
+    except Exception as exc:
+        LOG.debug("plyer failed: %s", exc)
         return False
 
 
@@ -115,7 +170,9 @@ def notify(title: str, message: str) -> None:
     backends = {
         "Darwin": [_notify_macos, _notify_plyer],
         "Linux": [_notify_linux, _notify_plyer],
-        "Windows": [_notify_windows],
+        # Prefer real toasts, then plyer, then built-in PowerShell.
+        "Windows": [_notify_win11toast, _notify_winotify,
+                    _notify_plyer, _notify_powershell],
     }.get(system, [_notify_plyer])
 
     for backend in backends:
@@ -232,6 +289,8 @@ def parse_args(argv=None) -> argparse.Namespace:
                         "0 (default) re-notifies on every check while the "
                         "condition holds.")
     p.add_argument("--once", action="store_true", help="Check once and exit.")
+    p.add_argument("--test-notification", action="store_true",
+                   help="Send a sample notification to verify the backend, then exit.")
     p.add_argument("-v", "--verbose", action="store_true", help="Debug logging.")
     return p.parse_args(argv)
 
@@ -240,6 +299,11 @@ def main(argv=None) -> int:
     args = parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
+    if args.test_notification:
+        notify(f"{APP_NAME} - Test",
+               "If you can see this toast, notifications are working.")
+        return 0
+
     try:
         notifier = Notifier(args.low, args.high, args.repeat_after)
     except ValueError as exc:
