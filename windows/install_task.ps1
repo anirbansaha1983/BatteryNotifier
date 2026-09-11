@@ -10,8 +10,17 @@
     Run from a normal (non-admin) PowerShell prompt:
         powershell -ExecutionPolicy Bypass -File .\windows\install_task.ps1
 
+    Or simply double-click windows\install_task.bat, which applies the
+    execution-policy bypass for you.
+
+    NOTE: running ".\install_task.ps1" directly may fail with
+    "running scripts is disabled on this system" - that is Windows'
+    PowerShell execution policy, not an error in this script. Use either of
+    the two forms above.
+
     Remove it later with:
         powershell -ExecutionPolicy Bypass -File .\windows\install_task.ps1 -Uninstall
+        (or: install_task.bat -Uninstall)
 #>
 
 param(

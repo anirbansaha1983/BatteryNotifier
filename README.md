@@ -30,12 +30,27 @@ python battery_notifier.py --test-notification
 
 ```powershell
 pip install -r requirements.txt
+```
+
+Then either **double-click `windows\install_task.bat`**, or run:
+
+```powershell
 powershell -ExecutionPolicy Bypass -File .\windows\install_task.ps1
 ```
+
+> **"running scripts is disabled on this system"?**
+> That is the PowerShell execution policy (default `Restricted`), not a problem
+> with the script. Running `.\install_task.ps1` directly triggers it. Use
+> `install_task.bat` or the `-ExecutionPolicy Bypass -File` command above — both
+> scope the bypass to a single process and change nothing system-wide.
+> If you would rather allow local scripts permanently, run once:
+> `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` (no admin rights needed).
 
 - `windows\run_battery_notifier.bat` — launches the monitor with `pythonw.exe`
   so there is **no console window**. Edit the `LOW` / `HIGH` / `INTERVAL` /
   `REPEAT_AFTER` variables at the top to tune it. Double-click to run manually.
+- `windows\install_task.bat` — double-clickable wrapper that runs the installer
+  below with an execution-policy bypass (and `Unblock-File`s it first).
 - `windows\install_task.ps1` — registers a **Task Scheduler** job that runs the
   `.bat` at logon (1-minute delay), hidden, allowed to start and keep running on
   battery, with automatic restart on failure.
