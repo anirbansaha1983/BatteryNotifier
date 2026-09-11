@@ -35,6 +35,8 @@ LOG = logging.getLogger("battery_notifier")
 DEFAULT_LOW = 30
 DEFAULT_HIGH = 80
 DEFAULT_INTERVAL = 60
+# 0 => re-notify on every check while the condition holds (keep nagging).
+DEFAULT_REPEAT_AFTER = 0.0
 
 
 @dataclass(frozen=True)
@@ -155,14 +157,17 @@ class Notifier:
     """Checks the battery and notifies, avoiding repeat spam."""
 
     def __init__(self, low: int = DEFAULT_LOW, high: int = DEFAULT_HIGH,
-                 repeat_after: float = 15 * 60) -> None:
+                 repeat_after: float = DEFAULT_REPEAT_AFTER) -> None:
         if not 0 <= low < high <= 100:
             raise ValueError("Require 0 <= low < high <= 100")
+        if repeat_after < 0:
+            raise ValueError("repeat_after must be >= 0")
         self.low = low
         self.high = high
         self.repeat_after = repeat_after
         self._last_kind: Optional[str] = None
         self._last_time: float = 0.0
+        self._alert_count = 0
 
     def check(self) -> Optional[str]:
         state = read_battery()
@@ -175,22 +180,37 @@ class Notifier:
 
         result = evaluate(state, self.low, self.high)
         if result is None:
+            if self._last_kind is not None:
+                LOG.info("Battery back in normal range; alerts reset.")
             self._last_kind = None
+            self._alert_count = 0
             return None
 
         kind, title, message = result
         now = time.monotonic()
-        if kind == self._last_kind and (now - self._last_time) < self.repeat_after:
-            LOG.debug("Suppressing repeat '%s' notification", kind)
+
+        if kind != self._last_kind:
+            # New condition: alert immediately and restart the counter.
+            self._alert_count = 0
+        elif self.repeat_after > 0 and (now - self._last_time) < self.repeat_after:
+            LOG.debug("Suppressing repeat '%s' notification (%.0fs of %.0fs elapsed)",
+                      kind, now - self._last_time, self.repeat_after)
             return None
+
+        self._alert_count += 1
+        if self._alert_count > 1:
+            message = f"{message} (reminder #{self._alert_count})"
 
         notify(title, message)
         self._last_kind, self._last_time = kind, now
         return kind
 
     def run(self, interval: float = DEFAULT_INTERVAL) -> None:
-        LOG.info("Monitoring battery (low<=%d%%, high>=%d%%, every %.0fs). Ctrl+C to stop.",
-                 self.low, self.high, interval)
+        repeat = ("every check" if self.repeat_after <= 0
+                  else f"at most every {self.repeat_after:.0f}s")
+        LOG.info("Monitoring battery (low<=%d%%, high>=%d%%, checking every %.0fs, "
+                 "re-notifying %s). Ctrl+C to stop.",
+                 self.low, self.high, interval, repeat)
         try:
             while True:
                 self.check()
@@ -207,8 +227,10 @@ def parse_args(argv=None) -> argparse.Namespace:
                    help="Notify at or above this %% while charging (default 80).")
     p.add_argument("--interval", type=float, default=DEFAULT_INTERVAL,
                    help="Seconds between checks (default 60).")
-    p.add_argument("--repeat-after", type=float, default=15 * 60,
-                   help="Seconds before repeating the same alert (default 900).")
+    p.add_argument("--repeat-after", type=float, default=DEFAULT_REPEAT_AFTER,
+                   help="Minimum seconds between repeats of the same alert. "
+                        "0 (default) re-notifies on every check while the "
+                        "condition holds.")
     p.add_argument("--once", action="store_true", help="Check once and exit.")
     p.add_argument("-v", "--verbose", action="store_true", help="Debug logging.")
     return p.parse_args(argv)

@@ -29,11 +29,23 @@ python battery_notifier.py -v                     # debug logging
 | `--low` | 30 | Alert at or below this % while discharging |
 | `--high` | 80 | Alert at or above this % while charging |
 | `--interval` | 60 | Seconds between checks |
-| `--repeat-after` | 900 | Seconds before repeating the same alert |
+| `--repeat-after` | 0 | Minimum seconds between repeats of the same alert (0 = notify on every check) |
 | `--once` | off | Check once and exit |
 
-The same alert is not repeated until `--repeat-after` elapses, and the state is
-reset once the battery returns to the normal range.
+### Repeat behaviour
+
+By default the app **keeps notifying on every check** for as long as the
+condition holds, so a low battery nags you once per `--interval` until you plug
+in. Follow-up alerts are tagged `(reminder #2)`, `(reminder #3)`, …
+
+To throttle instead, pass `--repeat-after`:
+
+```bash
+python battery_notifier.py --interval 30 --repeat-after 600   # remind at most every 10 min
+```
+
+A change of condition (low → high, or vice versa) always alerts immediately, and
+the reminder counter resets once the battery returns to the normal range.
 
 ## Tests
 
