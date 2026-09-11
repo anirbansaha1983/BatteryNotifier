@@ -128,3 +128,78 @@ def test_test_notification_flag(monkeypatch, capsys):
     monkeypatch.setattr(bn, "notify", lambda t, m: sent.append(t))
     assert bn.main(["--test-notification"]) == 0
     assert sent and "Test" in sent[0]
+
+
+# --------------------------------------------------------------------------- #
+# Status file / heartbeat
+# --------------------------------------------------------------------------- #
+
+import json
+import os
+
+
+def test_heartbeat_written_each_check(tmp_path, monkeypatch):
+    sf = tmp_path / "status.json"
+    monkeypatch.setattr(bn, "read_battery", lambda: state(22, False))
+    monkeypatch.setattr(bn, "notify", lambda t, m: None)
+    n = bn.Notifier(status_file=sf)
+    n.check()
+    data = json.loads(sf.read_text())
+    assert data["pid"] == os.getpid()
+    assert data["checks"] == 1
+    assert data["notifications_sent"] == 1
+    assert data["battery"]["percent"] == 22
+    assert data["battery"]["charging"] is False
+    assert data["last_alert"] == "low"
+    n.check()
+    assert json.loads(sf.read_text())["checks"] == 2
+
+
+def test_heartbeat_written_when_normal(tmp_path, monkeypatch):
+    sf = tmp_path / "status.json"
+    monkeypatch.setattr(bn, "read_battery", lambda: state(55, False))
+    n = bn.Notifier(status_file=sf)
+    assert n.check() is None
+    data = json.loads(sf.read_text())
+    assert data["notifications_sent"] == 0
+    assert data["last_alert"] is None
+
+
+def test_status_file_failure_does_not_break_check(tmp_path, monkeypatch):
+    # Point the status file at a path that cannot be created.
+    bad = tmp_path / "afile"
+    bad.write_text("x")
+    monkeypatch.setattr(bn, "read_battery", lambda: state(22, False))
+    monkeypatch.setattr(bn, "notify", lambda t, m: None)
+    n = bn.Notifier(status_file=bad / "nested" / "status.json")
+    assert n.check() == "low"          # still works
+
+
+def test_status_command_reports_not_running(tmp_path, capsys):
+    rc = bn.print_status(tmp_path / "missing.json")
+    assert rc == 1
+    assert "NOT RUNNING" in capsys.readouterr().out
+
+
+def test_status_command_reports_running(tmp_path, monkeypatch, capsys):
+    sf = tmp_path / "status.json"
+    monkeypatch.setattr(bn, "read_battery", lambda: state(22, False))
+    monkeypatch.setattr(bn, "notify", lambda t, m: None)
+    bn.Notifier(status_file=sf).check()   # writes our own live pid
+    rc = bn.print_status(sf)
+    out = capsys.readouterr().out
+    assert rc == 0 and "RUNNING" in out and "22" in out
+
+
+def test_status_detects_dead_pid(tmp_path, capsys):
+    sf = tmp_path / "status.json"
+    bn.write_status(sf, {"pid": 999999, "checks": 1, "notifications_sent": 0,
+                         "thresholds": {"low": 30, "high": 80}, "battery": None})
+    assert bn.print_status(sf) == 1
+    assert "STALE" in capsys.readouterr().out
+
+
+def test_resolve_path_semantics(tmp_path):
+    assert bn.resolve_path(None, "x.json") is None            # flag absent
+    assert bn.resolve_path("", "x.json") == bn.default_state_dir() / "x.json"
+    assert bn.resolve_path(str(tmp_path / "c.json"), "x.json") == tmp_path / "c.json"

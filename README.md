@@ -26,6 +26,60 @@ Verify your setup with:
 python battery_notifier.py --test-notification
 ```
 
+## Is it running?
+
+Because the app runs under `pythonw.exe` there is **no window** — that is normal.
+Verify it in any of these ways.
+
+**1. Ask the app (most reliable).** It writes a heartbeat file after every check:
+
+```bash
+python battery_notifier.py --status
+```
+
+```
+RUNNING - pid 12345, last check 12s ago
+  status file : C:\Users\you\AppData\Local\BatteryNotifier\status.json
+  running since: 2026-09-11T16:26:56
+  checks       : 42   notifications: 2
+  battery      : 78% (charging), 0h 25m left
+  thresholds   : low<=30%  high>=80%
+```
+
+Exit code is `0` when running, `1` when not — handy for scripting. On Windows
+just double-click **`windows\status.bat`**, which additionally lists the matching
+`pythonw.exe` processes and the scheduled-task state.
+
+**2. Read the log.** `%LOCALAPPDATA%\BatteryNotifier\battery_notifier.log`
+(rotating, 1 MB × 3) gets a line per check:
+
+```powershell
+Get-Content "$env:LOCALAPPDATA\BatteryNotifier\battery_notifier.log" -Tail 20 -Wait
+```
+
+**3. Look for the process.**
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name='pythonw.exe'" |
+  Where-Object CommandLine -like '*battery_notifier*' |
+  Select-Object ProcessId, CommandLine
+```
+
+Task Manager shows it under the **Details** tab (not Processes) as `pythonw.exe`.
+
+**4. Force a notification** to confirm the toast path end-to-end:
+
+```bash
+python battery_notifier.py --test-notification
+```
+
+Related flags: `--log-file [PATH]`, `--status-file [PATH]` (both default to
+`%LOCALAPPDATA%\BatteryNotifier\` on Windows, `~/.local/state/battery-notifier/`
+elsewhere) and `--no-status-file` to disable the heartbeat.
+
+To **stop** it: `Stop-Process -Id <pid>`, or `taskkill /IM pythonw.exe` (note this
+kills *all* windowless Python processes).
+
 ## Windows: auto-start at login
 
 ```powershell
@@ -84,6 +138,10 @@ python battery_notifier.py -v                     # debug logging
 | `--repeat-after` | 0 | Minimum seconds between repeats of the same alert (0 = notify on every check) |
 | `--once` | off | Check once and exit |
 | `--test-notification` | off | Send a sample notification and exit |
+| `--status` | off | Report whether the monitor is running, and exit |
+| `--log-file [PATH]` | off | Append to a rotating log file (1 MB × 3) |
+| `--status-file [PATH]` | on in loop | Heartbeat JSON written after every check |
+| `--no-status-file` | off | Disable the heartbeat file |
 
 ### Repeat behaviour
 
