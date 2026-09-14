@@ -25,7 +25,8 @@
 
 param(
     [string]$TaskName = "BatteryNotifier",
-    [switch]$Uninstall
+    [switch]$Uninstall,
+    [switch]$Tray      # install the tray-icon version instead of the headless one
 )
 
 $ErrorActionPreference = "Stop"
@@ -40,10 +41,12 @@ if ($Uninstall) {
     return
 }
 
-$batch = Join-Path $PSScriptRoot "run_battery_notifier.bat"
+$batchName = if ($Tray) { "run_tray.bat" } else { "run_battery_notifier.bat" }
+$batch = Join-Path $PSScriptRoot $batchName
 if (-not (Test-Path $batch)) {
     throw "Could not find $batch"
 }
+Write-Host "Using launcher: $batchName" -ForegroundColor Cyan
 
 $action = New-ScheduledTaskAction -Execute "cmd.exe" `
     -Argument "/c `"$batch`"" -WorkingDirectory $PSScriptRoot

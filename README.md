@@ -26,6 +26,47 @@ Verify your setup with:
 python battery_notifier.py --test-notification
 ```
 
+## Taskbar / system tray icon
+
+For a visible indicator instead of an invisible background process, run the
+tray version — a battery icon sits in the notification area next to the clock:
+
+```bash
+pip install pystray Pillow
+python tray.py
+```
+
+On Windows just double-click **`windows\run_tray.bat`**.
+
+- **Hover** the icon for the exact charge, e.g.
+  `Battery Notifier - 78% (charging), 0h 25m left`.
+- **Right-click** for battery details, your thresholds, *Show status
+  notification*, *Send test notification*, and *Exit*.
+- The icon fills up with the charge level and is colour-coded:
+
+| Colour | Meaning |
+| --- | --- |
+| 🔵 Blue | On battery, normal range |
+| 🟢 Green (⚡) | Charging, normal range |
+| 🔴 Red | Discharging and at/below `--low` |
+| 🟡 Amber (⚡) | Charging and at/above `--high` |
+| ⚪ Grey | No battery detected |
+
+It accepts the same options as the CLI (`--low`, `--high`, `--interval`,
+`--repeat-after`, `--log-file`, …) and keeps writing the log and status file, so
+`--status` still works alongside it.
+
+> **Can't see the icon?** Windows hides new tray icons by default. Click the
+> **^** chevron on the taskbar to see hidden icons, then go to *Settings >
+> Personalization > Taskbar > Other system tray icons* and switch **pythonw.exe**
+> on to pin it permanently.
+
+To start the tray version at logon instead of the headless one:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\windows\install_task.ps1 -Tray
+```
+
 ## Is it running?
 
 Because the app runs under `pythonw.exe` there is **no window** — that is normal.
@@ -103,11 +144,14 @@ powershell -ExecutionPolicy Bypass -File .\windows\install_task.ps1
 - `windows\run_battery_notifier.bat` — launches the monitor with `pythonw.exe`
   so there is **no console window**. Edit the `LOW` / `HIGH` / `INTERVAL` /
   `REPEAT_AFTER` variables at the top to tune it. Double-click to run manually.
+- `windows\run_tray.bat` — same, but with a **system tray icon** (see above).
+- `windows\status.bat` — reports whether the monitor is currently running.
 - `windows\install_task.bat` — double-clickable wrapper that runs the installer
   below with an execution-policy bypass (and `Unblock-File`s it first).
 - `windows\install_task.ps1` — registers a **Task Scheduler** job that runs the
   `.bat` at logon (1-minute delay), hidden, allowed to start and keep running on
-  battery, with automatic restart on failure.
+  battery, with automatic restart on failure. Add `-Tray` to install the
+  tray-icon version instead.
 
 Useful follow-ups:
 
