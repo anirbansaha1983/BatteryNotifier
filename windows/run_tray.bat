@@ -20,9 +20,13 @@ set "LOW=30"
 set "HIGH=80"
 set "INTERVAL=60"
 set "REPEAT_AFTER=300"
+REM Sound: alarm (loud, looping) | default (normal ding) | off
+set "SOUND=alarm"
+REM How many times to repeat the alarm tone.
+set "BEEP_REPEATS=3"
 REM ---------------------------------------------------------------------------
 
-set "ARGS=--low %LOW% --high %HIGH% --interval %INTERVAL% --repeat-after %REPEAT_AFTER% --log-file --status-file"
+set "ARGS=--low %LOW% --high %HIGH% --interval %INTERVAL% --repeat-after %REPEAT_AFTER% --log-file --status-file --sound %SOUND% --beep-repeats %BEEP_REPEATS%"
 
 set "PYW="
 for %%P in (pythonw.exe) do if not defined PYW set "PYW=%%~$PATH:P"

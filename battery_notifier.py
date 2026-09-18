@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -88,13 +89,94 @@ def _notify_macos(title: str, message: str) -> bool:
     return subprocess.call(["osascript", "-e", script]) == 0
 
 
-def _notify_linux(title: str, message: str) -> bool:
-    if not shutil.which("notify-send"):
-        return False
-    return subprocess.call(["notify-send", title, message]) == 0
-
-
 APP_NAME = "Battery Notifier"
+
+# Sound behaviour. "alarm" = loud looping alarm, "default" = normal toast ding,
+# "off" = silent toast.
+SOUND_MODES = ("alarm", "default", "off")
+DEFAULT_SOUND = "alarm"
+
+# Module-level sound settings, configured from the CLI in main().
+_SOUND_MODE = DEFAULT_SOUND
+_BEEP_ENABLED = True
+_BEEP_REPEATS = 3
+
+
+def configure_sound(mode: str = DEFAULT_SOUND, beep: bool = True,
+                    repeats: int = 3) -> None:
+    """Set how loud/insistent notifications are."""
+    global _SOUND_MODE, _BEEP_ENABLED, _BEEP_REPEATS
+    if mode not in SOUND_MODES:
+        raise ValueError(f"sound mode must be one of {SOUND_MODES}")
+    _SOUND_MODE = mode
+    _BEEP_ENABLED = beep
+    _BEEP_REPEATS = max(0, int(repeats))
+
+
+def _play_alarm() -> None:
+    """Play an attention-grabbing sound, independent of the toast.
+
+    Windows toast audio is mixed under the "Notifications" volume channel, which
+    is quiet (and muted entirely by Focus Assist / Do Not Disturb). A direct
+    beep or system sound is far harder to miss.
+    """
+    if not _BEEP_ENABLED or _SOUND_MODE == "off":
+        return
+
+    system = platform.system()
+    repeats = max(1, _BEEP_REPEATS)
+
+    if system == "Windows":
+        try:
+            import winsound  # type: ignore
+
+            for i in range(repeats):
+                # Rising two-tone chirp - cuts through background noise.
+                winsound.Beep(880, 250)
+                winsound.Beep(1245, 250)
+                if i < repeats - 1:
+                    time.sleep(0.12)
+            # Also fire the system "exclamation" sound at system volume.
+            winsound.MessageBeep(getattr(winsound, "MB_ICONEXCLAMATION", 0x30))
+            return
+        except Exception as exc:
+            LOG.debug("winsound beep failed: %s", exc)
+
+    if system == "Darwin":
+        try:
+            if shutil.which("afplay"):
+                for _ in range(repeats):
+                    subprocess.call(
+                        ["afplay", "-v", "2",
+                         "/System/Library/Sounds/Sosumi.aiff"],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return
+        except Exception as exc:
+            LOG.debug("afplay failed: %s", exc)
+
+    if system == "Linux":
+        for player, args in (
+            ("paplay", ["/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga"]),
+            ("aplay", ["/usr/share/sounds/alsa/Front_Center.wav"]),
+        ):
+            if shutil.which(player):
+                try:
+                    for _ in range(repeats):
+                        subprocess.call([player, *args],
+                                        stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL)
+                    return
+                except Exception as exc:
+                    LOG.debug("%s failed: %s", player, exc)
+
+    # Universal fallback: terminal bell.
+    try:
+        for _ in range(repeats):
+            sys.stdout.write("\a")
+            sys.stdout.flush()
+            time.sleep(0.25)
+    except Exception:
+        pass
 
 
 def _notify_win11toast(title: str, message: str) -> bool:
@@ -103,8 +185,29 @@ def _notify_win11toast(title: str, message: str) -> bool:
         from win11toast import toast  # type: ignore
     except Exception:
         return False
+
+    kwargs = {"app_id": APP_NAME}
+    if _SOUND_MODE == "alarm":
+        # Looping alarm audio + long duration so the toast stays on screen
+        # until dismissed, instead of vanishing after a few seconds.
+        kwargs["audio"] = {"src": "ms-winsoundevent:Notification.Looping.Alarm",
+                           "loop": "true"}
+        kwargs["duration"] = "long"
+        kwargs["scenario"] = "alarm"
+    elif _SOUND_MODE == "off":
+        kwargs["audio"] = {"silent": "true"}
+        kwargs["duration"] = "short"
+    else:
+        kwargs["duration"] = "short"
+
     try:
-        toast(title, message, app_id=APP_NAME, duration="short")
+        toast(title, message, **kwargs)
+        return True
+    except Exception as exc:
+        LOG.debug("win11toast (rich) failed: %s", exc)
+
+    try:  # retry without the fancy options
+        toast(title, message, app_id=APP_NAME)
         return True
     except Exception as exc:
         LOG.debug("win11toast failed: %s", exc)
@@ -118,9 +221,13 @@ def _notify_winotify(title: str, message: str) -> bool:
     except Exception:
         return False
     try:
-        t = Notification(app_id=APP_NAME, title=title, msg=message)
+        t = Notification(app_id=APP_NAME, title=title, msg=message,
+                         duration="long" if _SOUND_MODE == "alarm" else "short")
         try:
-            t.set_audio(audio.Default, loop=False)
+            if _SOUND_MODE == "alarm":
+                t.set_audio(audio.LoopingAlarm, loop=True)
+            elif _SOUND_MODE == "default":
+                t.set_audio(audio.Default, loop=False)
         except Exception:
             pass
         t.show()
@@ -137,16 +244,28 @@ def _notify_powershell(title: str, message: str) -> bool:
         return False
     safe_title = title.replace("'", "''")
     safe_message = message.replace("'", "''")
+    if _SOUND_MODE == "alarm":
+        audio_xml = ("<audio src='ms-winsoundevent:Notification.Looping.Alarm' "
+                     "loop='true'/>")
+        scenario = " scenario='alarm'"
+    elif _SOUND_MODE == "off":
+        audio_xml = "<audio silent='true'/>"
+        scenario = ""
+    else:
+        audio_xml = ""
+        scenario = ""
+
+    xml = (f"<toast{scenario}><visual><binding template='ToastText02'>"
+           f"<text id='1'>{safe_title}</text>"
+           f"<text id='2'>{safe_message}</text>"
+           f"</binding></visual>{audio_xml}</toast>")
     script = (
         "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications,"
         " ContentType=WindowsRuntime] > $null;"
-        "$t=[Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent("
-        "[Windows.UI.Notifications.ToastTemplateType]::ToastText02);"
-        "$n=$t.GetElementsByTagName('text');"
-        f"$n.Item(0).AppendChild($t.CreateTextNode('{safe_title}')) > $null;"
-        f"$n.Item(1).AppendChild($t.CreateTextNode('{safe_message}')) > $null;"
+        "$x=New-Object Windows.Data.Xml.Dom.XmlDocument;"
+        f"$x.LoadXml(@'\n{xml}\n'@);"
         "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("
-        f"'{APP_NAME}').Show([Windows.UI.Notifications.ToastNotification]::new($t));"
+        f"'{APP_NAME}').Show([Windows.UI.Notifications.ToastNotification]::new($x));"
     )
     try:
         return subprocess.call(
@@ -170,6 +289,16 @@ def _notify_plyer(title: str, message: str) -> bool:
         return False
 
 
+def _notify_linux(title: str, message: str) -> bool:
+    if not shutil.which("notify-send"):
+        return False
+    cmd = ["notify-send", title, message]
+    if _SOUND_MODE == "alarm":
+        # Critical urgency never auto-dismisses and bypasses Do Not Disturb.
+        cmd[1:1] = ["--urgency=critical", "--expire-time=0"]
+    return subprocess.call(cmd) == 0
+
+
 def notify(title: str, message: str) -> None:
     """Best-effort desktop notification; always falls back to the console."""
     system = platform.system()
@@ -180,6 +309,12 @@ def notify(title: str, message: str) -> None:
         "Windows": [_notify_win11toast, _notify_winotify,
                     _notify_plyer, _notify_powershell],
     }.get(system, [_notify_plyer])
+
+    # Play the alarm on a background thread so a multi-second sound never
+    # delays the toast or the monitoring loop.
+    if _BEEP_ENABLED and _SOUND_MODE != "off":
+        threading.Thread(target=_play_alarm, daemon=True,
+                         name="battery-alarm").start()
 
     for backend in backends:
         try:
@@ -359,6 +494,14 @@ def parse_args(argv=None) -> argparse.Namespace:
                         "Defaults to the standard location when running the loop.")
     p.add_argument("--no-status-file", action="store_true",
                    help="Disable the heartbeat status file entirely.")
+    p.add_argument("--sound", choices=SOUND_MODES, default=DEFAULT_SOUND,
+                   help="Toast sound: 'alarm' (loud, looping, stays on screen; "
+                        "default), 'default' (normal ding) or 'off' (silent).")
+    p.add_argument("--no-beep", action="store_true",
+                   help="Do not play the extra audible beep/alarm tone "
+                        "(the toast sound is still used).")
+    p.add_argument("--beep-repeats", type=int, default=3, metavar="N",
+                   help="How many times to repeat the alarm tone (default 3).")
     p.add_argument("-v", "--verbose", action="store_true", help="Debug logging.")
     return p.parse_args(argv)
 
@@ -432,6 +575,8 @@ def main(argv=None) -> int:
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s",
                         handlers=handlers)
+
+    configure_sound(args.sound, not args.no_beep, args.beep_repeats)
 
     if args.status:
         return print_status(resolve_path(args.status_file, "status.json")

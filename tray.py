@@ -128,6 +128,13 @@ class TrayApp:
                   f"{self._details()}. Checks: {self.notifier._checks}, "
                   f"alerts sent: {self.notifier._notifications}.")
 
+    def _on_cycle_sound(self) -> None:
+        """Cycle alarm -> default -> off and preview the new setting."""
+        nxt = {"alarm": "default", "default": "off", "off": "alarm"}[bn._SOUND_MODE]
+        bn.configure_sound(nxt, bn._BEEP_ENABLED, bn._BEEP_REPEATS)
+        LOG.info("Sound mode set to %s", nxt)
+        bn.notify(f"{bn.APP_NAME} - Sound", f"Sound mode is now '{nxt}'.")
+
     def _on_exit(self) -> None:
         LOG.info("Exit requested from tray menu.")
         self._stop.set()
@@ -144,6 +151,10 @@ class TrayApp:
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Show status notification", lambda: self._on_show_status()),
             pystray.MenuItem("Send test notification", lambda: self._on_test()),
+            pystray.MenuItem(
+                lambda _: f"Sound: {bn._SOUND_MODE}"
+                          f"{'' if bn._BEEP_ENABLED else ' (no beep)'}",
+                lambda: self._on_cycle_sound()),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Exit", lambda: self._on_exit()),
         )
@@ -215,6 +226,8 @@ def main(argv=None) -> int:
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s",
                         handlers=handlers)
+
+    bn.configure_sound(args.sound, not args.no_beep, args.beep_repeats)
 
     status_file = (None if args.no_status_file
                    else bn.resolve_path(args.status_file, "status.json")

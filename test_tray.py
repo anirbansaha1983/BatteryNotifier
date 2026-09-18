@@ -160,3 +160,15 @@ def test_refresh_icon_updates_image_and_title():
 
 def test_refresh_icon_noop_without_icon():
     tray.TrayApp(bn.Notifier(), interval=60).refresh_icon()   # must not raise
+
+
+def test_sound_cycle_menu(monkeypatch):
+    sent = []
+    monkeypatch.setattr(bn, "notify", lambda t, m: sent.append(m))
+    bn.configure_sound("alarm", True, 3)
+    app = tray.TrayApp(bn.Notifier(), interval=60)
+    app._on_cycle_sound(); assert bn._SOUND_MODE == "default"
+    app._on_cycle_sound(); assert bn._SOUND_MODE == "off"
+    app._on_cycle_sound(); assert bn._SOUND_MODE == "alarm"
+    assert len(sent) == 3
+    bn.configure_sound(bn.DEFAULT_SOUND, True, 3)

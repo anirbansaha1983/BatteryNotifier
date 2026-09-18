@@ -26,6 +26,43 @@ Verify your setup with:
 python battery_notifier.py --test-notification
 ```
 
+### Making alerts impossible to miss
+
+Windows mixes toast audio under the quiet **Notifications** volume channel, so
+the standard ding is easy to miss. By default this app therefore:
+
+1. asks for the **looping alarm** toast sound (`ms-winsoundevent:Notification.Looping.Alarm`)
+   with `scenario=alarm`, so the toast **stays on screen until you dismiss it**
+   instead of vanishing after ~5 seconds;
+2. plays its **own rising two-tone chirp** ×3 plus the system *Exclamation*
+   sound via `winsound`, which uses the normal system volume and so is audible
+   even when notification audio is turned down;
+3. on Linux, sends the toast with `--urgency=critical --expire-time=0`.
+
+The alarm is played on a background thread, so it never delays monitoring.
+
+| Flag | Effect |
+| --- | --- |
+| `--sound alarm` | **Default.** Loud looping alarm, toast persists |
+| `--sound default` | Normal notification ding |
+| `--sound off` | Silent toast |
+| `--no-beep` | Keep the toast sound, skip the extra chirp |
+| `--beep-repeats N` | Repeat the chirp N times (default 3) |
+
+```bash
+python battery_notifier.py --test-notification          # hear the alarm
+python battery_notifier.py --sound default --no-beep    # quieter
+```
+
+In the tray app, right-click the icon and click **Sound: …** to cycle
+alarm → default → off while it runs.
+
+> **Still can't hear it?** Check *Settings > System > Notifications* is on for
+> Python, turn **Focus assist / Do not disturb** off (it silences toast audio),
+> and raise the *Notifications* channel in **Volume Mixer** while an alert
+> plays. The `winsound` chirp ignores that channel, which is exactly why it is
+> enabled by default.
+
 ## Taskbar / system tray icon
 
 For a visible indicator instead of an invisible background process, run the
@@ -186,6 +223,9 @@ python battery_notifier.py -v                     # debug logging
 | `--log-file [PATH]` | off | Append to a rotating log file (1 MB × 3) |
 | `--status-file [PATH]` | on in loop | Heartbeat JSON written after every check |
 | `--no-status-file` | off | Disable the heartbeat file |
+| `--sound` | `alarm` | `alarm` / `default` / `off` (see below) |
+| `--no-beep` | off | Skip the extra audible alarm tone |
+| `--beep-repeats` | 3 | How many times to repeat the alarm tone |
 
 ### Repeat behaviour
 

@@ -17,11 +17,15 @@ set "HIGH=80"
 set "INTERVAL=60"
 REM Minimum seconds between repeats of the same alert (0 = every check).
 set "REPEAT_AFTER=300"
+REM Sound: alarm (loud, looping) | default (normal ding) | off
+set "SOUND=alarm"
+REM How many times to repeat the alarm tone.
+set "BEEP_REPEATS=3"
 REM ---------------------------------------------------------------------------
 
 REM Common arguments. --log-file and --status-file (no value) use the default
 REM location: %LOCALAPPDATA%\BatteryNotifier\
-set "ARGS=--low %LOW% --high %HIGH% --interval %INTERVAL% --repeat-after %REPEAT_AFTER% --log-file --status-file"
+set "ARGS=--low %LOW% --high %HIGH% --interval %INTERVAL% --repeat-after %REPEAT_AFTER% --log-file --status-file --sound %SOUND% --beep-repeats %BEEP_REPEATS%"
 
 REM Prefer pythonw.exe (windowless). Fall back to the py launcher, then python.
 set "PYW="
