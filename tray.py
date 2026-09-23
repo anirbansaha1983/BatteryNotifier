@@ -141,6 +141,7 @@ class TrayApp:
 
     def _on_exit(self) -> None:
         LOG.info("Exit requested from tray menu.")
+        bn.clear_notifications()     # do not leave alarm toasts behind
         self._stop.set()
         if self.icon is not None:
             self.icon.stop()

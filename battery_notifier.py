@@ -185,6 +185,31 @@ def _play_alarm() -> None:
         pass
 
 
+# Every alert toast is published with this tag/group so that a new one
+# *replaces* the previous instead of stacking, and so they can all be cleared
+# the moment the battery condition resolves.
+TOAST_TAG = "battery-alert"
+TOAST_GROUP = "battery-notifier"
+
+
+def clear_notifications() -> None:
+    """Remove any battery alert toasts still showing / in the Action Center.
+
+    Alert toasts use scenario='alarm' so they persist until dismissed. Once the
+    user plugs in (or unplugs) the alert is stale, so take it off the screen
+    instead of leaving a pile of alarms behind.
+    """
+    try:
+        from win11toast import clear_toast  # type: ignore
+    except Exception:
+        return
+    try:
+        clear_toast(app_id=APP_NAME, tag=TOAST_TAG, group=TOAST_GROUP)
+        LOG.debug("Cleared stale battery toasts")
+    except Exception as exc:
+        LOG.debug("Could not clear toasts: %s", exc)
+
+
 def _notify_win11toast(title: str, message: str) -> bool:
     """Modern Windows 10/11 toast via win11toast (WinRT-backed)."""
     try:
@@ -193,6 +218,11 @@ def _notify_win11toast(title: str, message: str) -> bool:
         return False
 
     kwargs = {"app_id": APP_NAME}
+    if _SOUND_MODE != "off":
+        # Tag + group make each new alert supersede the previous one, so
+        # repeats at --interval do not pile up in the Action Center.
+        kwargs["tag"] = TOAST_TAG
+        kwargs["group"] = TOAST_GROUP
     if _SOUND_MODE == "alarm":
         # Looping alarm audio + long duration so the toast stays on screen
         # until dismissed, instead of vanishing after a few seconds.
@@ -494,7 +524,10 @@ class Notifier:
         result = evaluate(state, self.low, self.high)
         if result is None:
             if self._last_kind is not None:
-                LOG.info("Battery back in normal range; alerts reset.")
+                LOG.info("Battery back in normal range; alerts reset "
+                         "and stale toasts cleared.")
+                # The user took action - remove the persistent alarm toasts.
+                clear_notifications()
             self._last_kind = None
             self._alert_count = 0
             self._heartbeat(state, None)
@@ -505,6 +538,8 @@ class Notifier:
 
         if kind != self._last_kind:
             # New condition: alert immediately and restart the counter.
+            if self._last_kind is not None:
+                clear_notifications()   # drop the now-obsolete alert
             self._alert_count = 0
         elif self.repeat_after > 0 and (now - self._last_time) < self.repeat_after:
             LOG.debug("Suppressing repeat '%s' notification (%.0fs of %.0fs elapsed)",
@@ -534,6 +569,9 @@ class Notifier:
                 time.sleep(interval)
         except KeyboardInterrupt:
             LOG.info("Stopped.")
+        finally:
+            # Never leave persistent alarm toasts behind after exiting.
+            clear_notifications()
 
 
 def parse_args(argv=None) -> argparse.Namespace:
