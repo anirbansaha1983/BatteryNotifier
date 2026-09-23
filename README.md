@@ -41,6 +41,12 @@ the standard ding is easy to miss. By default this app therefore:
 
 The alarm is played on a background thread, so it never delays monitoring.
 
+Only **battery alerts** get this loud treatment. Confirmations for things you
+just clicked in the tray menu (threshold changed, invalid value, status summary)
+appear as a brief **silent** toast with no alarm tone — you are already looking
+at the screen. *Send test notification* and the sound preview stay loud on
+purpose, since their job is to demo the alarm.
+
 | Flag | Effect |
 | --- | --- |
 | `--sound alarm` | **Default.** Loud looping alarm, toast persists |

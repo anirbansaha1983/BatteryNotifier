@@ -91,7 +91,7 @@ def test_tooltip_without_time_estimate():
 
 def test_worker_runs_checks_and_stops(monkeypatch):
     monkeypatch.setattr(bn, "read_battery", lambda: st(22, False))
-    monkeypatch.setattr(bn, "notify", lambda t, m: None)
+    monkeypatch.setattr(bn, "notify", lambda t, m, urgent=True: None)
     app = tray.TrayApp(bn.Notifier(), interval=0.01)
     import threading
     th = threading.Thread(target=app._worker, daemon=True)
@@ -164,7 +164,7 @@ def test_refresh_icon_noop_without_icon():
 
 def test_sound_cycle_menu(monkeypatch):
     sent = []
-    monkeypatch.setattr(bn, "notify", lambda t, m: sent.append(m))
+    monkeypatch.setattr(bn, "notify", lambda t, m, urgent=True: sent.append(m))
     bn.configure_sound("alarm", True, 3)
     app = tray.TrayApp(bn.Notifier(), interval=60)
     app._on_cycle_sound(); assert bn._SOUND_MODE == "default"

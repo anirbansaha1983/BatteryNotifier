@@ -38,7 +38,7 @@ def test_notifies_on_every_check_until_plugged_in(monkeypatch):
     sent = []
     current = {"s": st(22, False)}
     monkeypatch.setattr(bn, "read_battery", lambda: current["s"])
-    monkeypatch.setattr(bn, "notify", lambda t, m: sent.append(m))
+    monkeypatch.setattr(bn, "notify", lambda t, m, urgent=True: sent.append(m))
     n = bn.Notifier()
     for _ in range(5):
         n.check()
@@ -79,7 +79,7 @@ def test_set_thresholds_rejects_invalid(low, high):
 def test_changing_threshold_rearms_alert(monkeypatch):
     sent = []
     monkeypatch.setattr(bn, "read_battery", lambda: st(45, False))
-    monkeypatch.setattr(bn, "notify", lambda t, m: sent.append(m))
+    monkeypatch.setattr(bn, "notify", lambda t, m, urgent=True: sent.append(m))
     n = bn.Notifier(30, 80, repeat_after=600)
     assert n.check() is None                    # 45% is fine at low=30
     n.set_thresholds(low=50)                    # now 45% counts as low
@@ -130,7 +130,7 @@ def test_tray_presets_are_valid():
 
 def test_tray_set_low_and_high(monkeypatch):
     sent = []
-    monkeypatch.setattr(bn, "notify", lambda t, m: sent.append(m))
+    monkeypatch.setattr(bn, "notify", lambda t, m, urgent=True: sent.append(m))
     app = tray.TrayApp(bn.Notifier(30, 80), interval=5)
     app.set_low(20)
     app.set_high(95)
@@ -140,7 +140,7 @@ def test_tray_set_low_and_high(monkeypatch):
 
 def test_tray_rejects_invalid_choice(monkeypatch):
     sent = []
-    monkeypatch.setattr(bn, "notify", lambda t, m: sent.append(m))
+    monkeypatch.setattr(bn, "notify", lambda t, m, urgent=True: sent.append(m))
     app = tray.TrayApp(bn.Notifier(30, 80), interval=5)
     app.set_low(90)                              # 90 >= high(80)
     assert (app.notifier.low, app.notifier.high) == (30, 80)
@@ -148,7 +148,7 @@ def test_tray_rejects_invalid_choice(monkeypatch):
 
 
 def test_tray_threshold_change_refreshes_icon(monkeypatch):
-    monkeypatch.setattr(bn, "notify", lambda t, m: None)
+    monkeypatch.setattr(bn, "notify", lambda t, m, urgent=True: None)
 
     class FakeIcon:
         icon = None
@@ -165,7 +165,7 @@ def test_tray_threshold_change_refreshes_icon(monkeypatch):
 
 def test_custom_dialog_without_tkinter(monkeypatch):
     sent = []
-    monkeypatch.setattr(bn, "notify", lambda t, m: sent.append(m))
+    monkeypatch.setattr(bn, "notify", lambda t, m, urgent=True: sent.append(m))
     import builtins
     real = builtins.__import__
 

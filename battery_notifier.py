@@ -103,6 +103,10 @@ _SOUND_MODE = DEFAULT_SOUND
 _BEEP_ENABLED = True
 _BEEP_REPEATS = 3
 
+# Serialises notify() so a silent UI toast cannot leak its temporary sound
+# setting into a concurrent battery alert.
+_NOTIFY_LOCK = threading.RLock()
+
 
 def configure_sound(mode: str = DEFAULT_SOUND, beep: bool = True,
                     repeats: int = 3) -> None:
@@ -301,8 +305,15 @@ def _notify_linux(title: str, message: str) -> bool:
     return subprocess.call(cmd) == 0
 
 
-def notify(title: str, message: str) -> None:
-    """Best-effort desktop notification; always falls back to the console."""
+def notify(title: str, message: str, urgent: bool = True) -> None:
+    """Best-effort desktop notification; always falls back to the console.
+
+    `urgent=True` (battery alerts) uses the loud, looping, persistent toast plus
+    the extra alarm tone. `urgent=False` (UI confirmations such as "thresholds
+    updated") shows a brief, silent toast instead - the user just clicked a
+    menu item, so there is nothing to grab their attention about.
+    """
+    global _SOUND_MODE
     system = platform.system()
     backends = {
         "Darwin": [_notify_macos, _notify_plyer],
@@ -314,19 +325,28 @@ def notify(title: str, message: str) -> None:
 
     # Play the alarm on a background thread so a multi-second sound never
     # delays the toast or the monitoring loop.
-    if _BEEP_ENABLED and _SOUND_MODE != "off":
+    if urgent and _BEEP_ENABLED and _SOUND_MODE != "off":
         threading.Thread(target=_play_alarm, daemon=True,
                          name="battery-alarm").start()
 
-    for backend in backends:
+    # Non-urgent toasts are rendered silently and briefly. The lock keeps a
+    # concurrent battery alert from picking up the temporary "off" mode.
+    with _NOTIFY_LOCK:
+        previous_mode = _SOUND_MODE
+        if not urgent:
+            _SOUND_MODE = "off"
         try:
-            if backend(title, message):
-                LOG.debug("Notification sent via %s", backend.__name__)
-                break
-        except Exception as exc:  # pragma: no cover
-            LOG.debug("%s failed: %s", backend.__name__, exc)
-    else:
-        LOG.warning("No desktop notifier available; printing instead.")
+            for backend in backends:
+                try:
+                    if backend(title, message):
+                        LOG.debug("Notification sent via %s", backend.__name__)
+                        break
+                except Exception as exc:  # pragma: no cover
+                    LOG.debug("%s failed: %s", backend.__name__, exc)
+            else:
+                LOG.warning("No desktop notifier available; printing instead.")
+        finally:
+            _SOUND_MODE = previous_mode
 
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {title}: {message}")
 

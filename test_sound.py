@@ -210,3 +210,78 @@ def test_cli_no_beep(monkeypatch):
     monkeypatch.setattr(bn, "notify", lambda t, m: None)
     bn.main(["--test-notification", "--no-beep"])
     assert bn._BEEP_ENABLED is False
+
+
+# --------------------------------------------------------------------------- #
+# Urgent vs non-urgent (UI confirmation) notifications
+# --------------------------------------------------------------------------- #
+
+def test_non_urgent_skips_alarm(monkeypatch):
+    played = []
+    monkeypatch.setattr(bn, "_play_alarm", lambda: played.append(1))
+    monkeypatch.setattr(bn.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(bn, "_notify_linux", lambda t, m: True)
+    bn.configure_sound("alarm", True, 1)
+    bn.notify("T", "M", urgent=False)
+    bn.time.sleep(0.05)
+    assert played == []
+
+
+def test_non_urgent_toast_is_silent(monkeypatch):
+    """A UI confirmation must not request the looping alarm audio."""
+    seen = {}
+    mod = types.ModuleType("win11toast")
+    def toast(title, message, **kwargs):
+        seen.update(kwargs)
+    mod.toast = toast
+    monkeypatch.setitem(sys.modules, "win11toast", mod)
+    monkeypatch.setattr(bn.platform, "system", lambda: "Windows")
+    bn.configure_sound("alarm", True, 1)
+    bn.notify("T", "M", urgent=False)
+    assert seen["audio"] == {"silent": "true"}
+    assert seen["duration"] == "short"
+    assert "scenario" not in seen
+
+
+def test_sound_mode_restored_after_non_urgent(monkeypatch):
+    monkeypatch.setattr(bn.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(bn, "_notify_linux", lambda t, m: True)
+    bn.configure_sound("alarm", True, 1)
+    bn.notify("T", "M", urgent=False)
+    assert bn._SOUND_MODE == "alarm"        # global not clobbered
+
+
+def test_sound_mode_restored_even_if_backend_raises(monkeypatch):
+    monkeypatch.setattr(bn.platform, "system", lambda: "Linux")
+    def boom(t, m):
+        raise RuntimeError("backend down")
+    monkeypatch.setattr(bn, "_notify_linux", boom)
+    monkeypatch.setattr(bn, "_notify_plyer", boom)
+    bn.configure_sound("alarm", True, 1)
+    bn.notify("T", "M", urgent=False)
+    assert bn._SOUND_MODE == "alarm"
+
+
+def test_urgent_is_still_the_default(monkeypatch):
+    played = []
+    monkeypatch.setattr(bn, "_play_alarm", lambda: played.append(1))
+    monkeypatch.setattr(bn.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(bn, "_notify_linux", lambda t, m: True)
+    bn.configure_sound("alarm", True, 1)
+    bn.notify("T", "M")                     # battery alerts pass no flag
+    for _ in range(50):
+        if played:
+            break
+        bn.time.sleep(0.01)
+    assert played == [1]
+
+
+def test_battery_alert_stays_urgent(monkeypatch):
+    """The Notifier's own alerts must keep the loud treatment."""
+    calls = []
+    monkeypatch.setattr(bn, "read_battery",
+                        lambda: bn.BatteryState(15, False, 600))
+    monkeypatch.setattr(bn, "notify",
+                        lambda t, m, urgent=True: calls.append(urgent))
+    bn.Notifier(status_file=None).check()
+    assert calls == [True]

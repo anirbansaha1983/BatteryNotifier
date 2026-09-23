@@ -25,7 +25,7 @@ def test_high_while_charging():
 def test_notifies_every_check_by_default(monkeypatch):
     sent = []
     monkeypatch.setattr(bn, "read_battery", lambda: state(15, False))
-    monkeypatch.setattr(bn, "notify", lambda t, m: sent.append(m))
+    monkeypatch.setattr(bn, "notify", lambda t, m, urgent=True: sent.append(m))
     n = bn.Notifier()
     assert [n.check() for _ in range(3)] == ["low", "low", "low"]
     assert len(sent) == 3
@@ -35,7 +35,7 @@ def test_notifies_every_check_by_default(monkeypatch):
 def test_repeat_after_throttles(monkeypatch):
     sent = []
     monkeypatch.setattr(bn, "read_battery", lambda: state(15, False))
-    monkeypatch.setattr(bn, "notify", lambda t, m: sent.append(t))
+    monkeypatch.setattr(bn, "notify", lambda t, m, urgent=True: sent.append(t))
     n = bn.Notifier(repeat_after=900)
     assert n.check() == "low"
     assert n.check() is None
@@ -46,7 +46,7 @@ def test_state_change_alerts_immediately(monkeypatch):
     sent = []
     current = {"s": state(15, False)}
     monkeypatch.setattr(bn, "read_battery", lambda: current["s"])
-    monkeypatch.setattr(bn, "notify", lambda t, m: sent.append(t))
+    monkeypatch.setattr(bn, "notify", lambda t, m, urgent=True: sent.append(t))
     n = bn.Notifier(repeat_after=900)
     assert n.check() == "low"
     current["s"] = state(95, True)          # plugged in, now high
@@ -58,7 +58,7 @@ def test_normal_range_resets_counter(monkeypatch):
     sent = []
     current = {"s": state(15, False)}
     monkeypatch.setattr(bn, "read_battery", lambda: current["s"])
-    monkeypatch.setattr(bn, "notify", lambda t, m: sent.append(m))
+    monkeypatch.setattr(bn, "notify", lambda t, m, urgent=True: sent.append(m))
     n = bn.Notifier()
     n.check(); n.check()
     current["s"] = state(50, False)
@@ -125,7 +125,7 @@ def test_backends_missing_modules_return_false():
 
 def test_test_notification_flag(monkeypatch, capsys):
     sent = []
-    monkeypatch.setattr(bn, "notify", lambda t, m: sent.append(t))
+    monkeypatch.setattr(bn, "notify", lambda t, m, urgent=True: sent.append(t))
     assert bn.main(["--test-notification"]) == 0
     assert sent and "Test" in sent[0]
 
@@ -141,7 +141,7 @@ import os
 def test_heartbeat_written_each_check(tmp_path, monkeypatch):
     sf = tmp_path / "status.json"
     monkeypatch.setattr(bn, "read_battery", lambda: state(22, False))
-    monkeypatch.setattr(bn, "notify", lambda t, m: None)
+    monkeypatch.setattr(bn, "notify", lambda t, m, urgent=True: None)
     n = bn.Notifier(status_file=sf)
     n.check()
     data = json.loads(sf.read_text())
@@ -170,7 +170,7 @@ def test_status_file_failure_does_not_break_check(tmp_path, monkeypatch):
     bad = tmp_path / "afile"
     bad.write_text("x")
     monkeypatch.setattr(bn, "read_battery", lambda: state(22, False))
-    monkeypatch.setattr(bn, "notify", lambda t, m: None)
+    monkeypatch.setattr(bn, "notify", lambda t, m, urgent=True: None)
     n = bn.Notifier(status_file=bad / "nested" / "status.json")
     assert n.check() == "low"          # still works
 
@@ -184,7 +184,7 @@ def test_status_command_reports_not_running(tmp_path, capsys):
 def test_status_command_reports_running(tmp_path, monkeypatch, capsys):
     sf = tmp_path / "status.json"
     monkeypatch.setattr(bn, "read_battery", lambda: state(22, False))
-    monkeypatch.setattr(bn, "notify", lambda t, m: None)
+    monkeypatch.setattr(bn, "notify", lambda t, m, urgent=True: None)
     bn.Notifier(status_file=sf).check()   # writes our own live pid
     rc = bn.print_status(sf)
     out = capsys.readouterr().out

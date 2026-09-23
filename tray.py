@@ -130,7 +130,7 @@ class TrayApp:
     def _on_show_status(self) -> None:
         bn.notify(f"{bn.APP_NAME} - Status",
                   f"{self._details()}. Checks: {self.notifier._checks}, "
-                  f"alerts sent: {self.notifier._notifications}.")
+                  f"alerts sent: {self.notifier._notifications}.", urgent=False)
 
     def _on_cycle_sound(self) -> None:
         """Cycle alarm -> default -> off and preview the new setting."""
@@ -158,11 +158,12 @@ class TrayApp:
             self.notifier.set_thresholds(low, high)
         except ValueError as exc:
             LOG.warning("Rejected threshold change: %s", exc)
-            bn.notify(f"{bn.APP_NAME} - Invalid setting", str(exc))
+            bn.notify(f"{bn.APP_NAME} - Invalid setting", str(exc), urgent=False)
             return
         bn.notify(f"{bn.APP_NAME} - Thresholds updated",
                   f"Now alerting at {self.notifier.low}% or below (on battery) "
-                  f"and {self.notifier.high}% or above (charging).")
+                  f"and {self.notifier.high}% or above (charging).",
+                  urgent=False)
         self.refresh_icon()
 
     def _on_custom_thresholds(self) -> None:
@@ -177,7 +178,7 @@ class TrayApp:
         except Exception:
             bn.notify(f"{bn.APP_NAME} - Custom thresholds",
                       "Tkinter is not available; pick a value from the menu "
-                      "or use --low/--high on the command line.")
+                      "or use --low/--high on the command line.", urgent=False)
             return
         try:
             root = tk.Tk()
@@ -211,7 +212,7 @@ class TrayApp:
             root.destroy()
             bn.notify(f"{bn.APP_NAME} - Thresholds updated",
                       f"Now alerting at {low}% or below (on battery) "
-                      f"and {high}% or above (charging).")
+                      f"and {high}% or above (charging).", urgent=False)
             self.refresh_icon()
         except Exception:
             LOG.exception("Custom threshold dialog failed")
