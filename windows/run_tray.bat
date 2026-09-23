@@ -16,17 +16,23 @@ set "SCRIPT_DIR=%~dp0"
 set "APP=%SCRIPT_DIR%..\tray.py"
 
 REM Tunables ------------------------------------------------------------------
-set "LOW=30"
-set "HIGH=80"
-set "INTERVAL=60"
-set "REPEAT_AFTER=300"
+REM Leave LOW/HIGH blank to use the thresholds you picked in the tray menu
+REM (saved in %LOCALAPPDATA%\BatteryNotifier\settings.json).
+set "LOW="
+set "HIGH="
+REM How often to check AND re-notify, in seconds.
+set "INTERVAL=5"
+REM 0 = keep notifying every INTERVAL until you plug in / unplug.
+set "REPEAT_AFTER=0"
 REM Sound: alarm (loud, looping) | default (normal ding) | off
 set "SOUND=alarm"
 REM How many times to repeat the alarm tone.
 set "BEEP_REPEATS=3"
 REM ---------------------------------------------------------------------------
 
-set "ARGS=--low %LOW% --high %HIGH% --interval %INTERVAL% --repeat-after %REPEAT_AFTER% --log-file --status-file --sound %SOUND% --beep-repeats %BEEP_REPEATS%"
+set "ARGS=--interval %INTERVAL% --repeat-after %REPEAT_AFTER% --log-file --status-file --sound %SOUND% --beep-repeats %BEEP_REPEATS%"
+if defined LOW  set "ARGS=%ARGS% --low %LOW%"
+if defined HIGH set "ARGS=%ARGS% --high %HIGH%"
 
 set "PYW="
 for %%P in (pythonw.exe) do if not defined PYW set "PYW=%%~$PATH:P"

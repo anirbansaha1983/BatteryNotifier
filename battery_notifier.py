@@ -41,7 +41,9 @@ LOG = logging.getLogger("battery_notifier")
 
 DEFAULT_LOW = 30
 DEFAULT_HIGH = 80
-DEFAULT_INTERVAL = 60
+# Check (and therefore re-alert) every 5 seconds so the reminder keeps nagging
+# until you plug in / unplug.
+DEFAULT_INTERVAL = 5
 # 0 => re-notify on every check while the condition holds (keep nagging).
 DEFAULT_REPEAT_AFTER = 0.0
 
@@ -360,6 +362,35 @@ def default_state_dir() -> Path:
                                Path.home() / ".local" / "state")) / "battery-notifier"
 
 
+def settings_file() -> Path:
+    """Where user-chosen thresholds are remembered between runs."""
+    return default_state_dir() / "settings.json"
+
+
+def load_settings() -> dict:
+    """Read saved thresholds, or {} if none/unreadable."""
+    try:
+        data = json.loads(settings_file().read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_settings(low: int, high: int) -> bool:
+    """Persist the chosen thresholds. Returns True on success."""
+    path = settings_file()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"low": int(low), "high": int(high)}, indent=2),
+                       encoding="utf-8")
+        os.replace(tmp, path)
+        return True
+    except Exception as exc:
+        LOG.debug("Could not save settings to %s: %s", path, exc)
+        return False
+
+
 def write_status(path: Path, payload: dict) -> None:
     """Atomically write the heartbeat/status JSON file."""
     try:
@@ -391,6 +422,23 @@ class Notifier:
         self._checks = 0
         self._notifications = 0
         self._started = time.time()
+
+    def set_thresholds(self, low: Optional[int] = None,
+                       high: Optional[int] = None, persist: bool = True) -> None:
+        """Change thresholds while running (used by the tray UI)."""
+        new_low = self.low if low is None else int(low)
+        new_high = self.high if high is None else int(high)
+        if not 0 <= new_low < new_high <= 100:
+            raise ValueError(
+                f"Invalid thresholds: need 0 <= low ({new_low}) "
+                f"< high ({new_high}) <= 100")
+        self.low, self.high = new_low, new_high
+        # Re-arm so the new setting can alert immediately.
+        self._last_kind = None
+        self._alert_count = 0
+        LOG.info("Thresholds updated: low<=%d%%, high>=%d%%", new_low, new_high)
+        if persist:
+            save_settings(new_low, new_high)
 
     def _heartbeat(self, state: Optional["BatteryState"],
                    alert: Optional[str]) -> None:
@@ -470,12 +518,16 @@ class Notifier:
 
 def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Notify on low/high battery charge.")
-    p.add_argument("--low", type=int, default=DEFAULT_LOW,
-                   help="Notify at or below this %% while discharging (default 30).")
-    p.add_argument("--high", type=int, default=DEFAULT_HIGH,
-                   help="Notify at or above this %% while charging (default 80).")
+    saved = load_settings()
+    p.add_argument("--low", type=int, default=saved.get("low", DEFAULT_LOW),
+                   help="Notify at or below this %% while discharging (default 30, "
+                        "or your last saved choice).")
+    p.add_argument("--high", type=int, default=saved.get("high", DEFAULT_HIGH),
+                   help="Notify at or above this %% while charging (default 80, "
+                        "or your last saved choice).")
     p.add_argument("--interval", type=float, default=DEFAULT_INTERVAL,
-                   help="Seconds between checks (default 60).")
+                   help="Seconds between checks, i.e. how often the reminder "
+                        "repeats (default 5).")
     p.add_argument("--repeat-after", type=float, default=DEFAULT_REPEAT_AFTER,
                    help="Minimum seconds between repeats of the same alert. "
                         "0 (default) re-notifies on every check while the "

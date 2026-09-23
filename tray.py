@@ -31,6 +31,10 @@ import battery_notifier as bn
 LOG = logging.getLogger("battery_notifier.tray")
 
 # Icon colours (RGBA).
+# Preset percentages offered in the tray menu.
+LOW_CHOICES = (10, 15, 20, 25, 30, 40, 50)
+HIGH_CHOICES = (60, 70, 75, 80, 85, 90, 95, 100)
+
 COLOURS = {
     "charging": (46, 160, 67, 255),    # green
     "normal": (56, 139, 253, 255),     # blue
@@ -141,13 +145,107 @@ class TrayApp:
         if self.icon is not None:
             self.icon.stop()
 
+    # -- threshold selection ----------------------------------------------- #
+    def set_low(self, value: int) -> None:
+        self._apply_thresholds(low=value)
+
+    def set_high(self, value: int) -> None:
+        self._apply_thresholds(high=value)
+
+    def _apply_thresholds(self, low: Optional[int] = None,
+                          high: Optional[int] = None) -> None:
+        try:
+            self.notifier.set_thresholds(low, high)
+        except ValueError as exc:
+            LOG.warning("Rejected threshold change: %s", exc)
+            bn.notify(f"{bn.APP_NAME} - Invalid setting", str(exc))
+            return
+        bn.notify(f"{bn.APP_NAME} - Thresholds updated",
+                  f"Now alerting at {self.notifier.low}% or below (on battery) "
+                  f"and {self.notifier.high}% or above (charging).")
+        self.refresh_icon()
+
+    def _on_custom_thresholds(self) -> None:
+        """Ask for exact percentages with a small dialog."""
+        threading.Thread(target=self._custom_dialog, daemon=True,
+                         name="threshold-dialog").start()
+
+    def _custom_dialog(self) -> None:
+        try:
+            import tkinter as tk
+            from tkinter import simpledialog, messagebox
+        except Exception:
+            bn.notify(f"{bn.APP_NAME} - Custom thresholds",
+                      "Tkinter is not available; pick a value from the menu "
+                      "or use --low/--high on the command line.")
+            return
+        try:
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            low = simpledialog.askinteger(
+                f"{bn.APP_NAME} - Low threshold",
+                "Notify when the battery drops to this % or below\n"
+                "while discharging (1-99):",
+                initialvalue=self.notifier.low, minvalue=1, maxvalue=99,
+                parent=root)
+            if low is None:
+                root.destroy()
+                return
+            high = simpledialog.askinteger(
+                f"{bn.APP_NAME} - High threshold",
+                "Notify when the battery reaches this % or above\n"
+                "while charging (2-100):",
+                initialvalue=self.notifier.high, minvalue=low + 1, maxvalue=100,
+                parent=root)
+            if high is None:
+                root.destroy()
+                return
+            try:
+                self.notifier.set_thresholds(low, high)
+            except ValueError as exc:
+                messagebox.showerror(f"{bn.APP_NAME} - Invalid", str(exc),
+                                     parent=root)
+                root.destroy()
+                return
+            root.destroy()
+            bn.notify(f"{bn.APP_NAME} - Thresholds updated",
+                      f"Now alerting at {low}% or below (on battery) "
+                      f"and {high}% or above (charging).")
+            self.refresh_icon()
+        except Exception:
+            LOG.exception("Custom threshold dialog failed")
+
     def build_menu(self):
         import pystray
+
+        def low_item(value):
+            return pystray.MenuItem(
+                f"{value}%",
+                lambda: self.set_low(value),
+                checked=lambda _, v=value: self.notifier.low == v,
+                radio=True)
+
+        def high_item(value):
+            return pystray.MenuItem(
+                f"{value}%",
+                lambda: self.set_high(value),
+                checked=lambda _, v=value: self.notifier.high == v,
+                radio=True)
+
+        low_menu = pystray.Menu(*[low_item(v) for v in LOW_CHOICES])
+        high_menu = pystray.Menu(*[high_item(v) for v in HIGH_CHOICES])
+
         return pystray.Menu(
             pystray.MenuItem(lambda _: self._details(), None, enabled=False),
             pystray.MenuItem(
                 lambda _: f"Thresholds: <={self.notifier.low}%  >={self.notifier.high}%",
                 None, enabled=False),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Low battery alert at", low_menu),
+            pystray.MenuItem("Charged alert at", high_menu),
+            pystray.MenuItem("Custom thresholds...",
+                             lambda: self._on_custom_thresholds()),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Show status notification", lambda: self._on_show_status()),
             pystray.MenuItem("Send test notification", lambda: self._on_test()),

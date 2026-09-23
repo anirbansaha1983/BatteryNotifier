@@ -89,6 +89,21 @@ On Windows just double-click **`windows\run_tray.bat`**.
 | 🟡 Amber (⚡) | Charging and at/above `--high` |
 | ⚪ Grey | No battery detected |
 
+### Choosing thresholds from the tray menu
+
+Right-click the icon to set the alert levels without touching the command line:
+
+- **Low battery alert at** → 10 / 15 / 20 / 25 / 30 / 40 / 50 %
+- **Charged alert at** → 60 / 70 / 75 / 80 / 85 / 90 / 95 / 100 %
+- **Custom thresholds…** → type any exact percentages in a small dialog
+
+The active value is ticked in the menu. Changes apply **immediately** (the
+monitor re-arms, so a newly-crossed threshold alerts on the very next check) and
+are **saved** to `settings.json` in the state folder, so they are reused next
+time you start the app — including after a reboot via the scheduled task.
+Invalid combinations (low ≥ high) are refused with an explanatory notification
+rather than being applied.
+
 It accepts the same options as the CLI (`--low`, `--high`, `--interval`,
 `--repeat-after`, `--log-file`, …) and keeps writing the log and status file, so
 `--status` still works alongside it.
@@ -205,9 +220,9 @@ Prefer a GUI? Task Scheduler → *Create Task* → Triggers: *At log on* → Act
 ## Usage
 
 ```bash
-python battery_notifier.py                        # monitor, check every 60s
+python battery_notifier.py                        # monitor, alert every 5s
 python battery_notifier.py --once                 # one check (cron / Task Scheduler)
-python battery_notifier.py --low 25 --high 85 --interval 30
+python battery_notifier.py --low 25 --high 85 --interval 10
 python battery_notifier.py -v                     # debug logging
 ```
 
@@ -215,7 +230,7 @@ python battery_notifier.py -v                     # debug logging
 | --- | --- | --- |
 | `--low` | 30 | Alert at or below this % while discharging |
 | `--high` | 80 | Alert at or above this % while charging |
-| `--interval` | 60 | Seconds between checks |
+| `--interval` | 5 | Seconds between checks — i.e. how often the alert repeats |
 | `--repeat-after` | 0 | Minimum seconds between repeats of the same alert (0 = notify on every check) |
 | `--once` | off | Check once and exit |
 | `--test-notification` | off | Send a sample notification and exit |
@@ -230,13 +245,17 @@ python battery_notifier.py -v                     # debug logging
 ### Repeat behaviour
 
 By default the app **keeps notifying on every check** for as long as the
-condition holds, so a low battery nags you once per `--interval` until you plug
-in. Follow-up alerts are tagged `(reminder #2)`, `(reminder #3)`, …
+condition holds. With the default `--interval 5` that means **a fresh
+notification every 5 seconds** until you take action — plug in when low, or
+unplug when charged. Follow-up alerts are tagged `(reminder #2)`,
+`(reminder #3)`, …
+
+The nagging stops by itself the moment the battery leaves the alert range.
 
 To throttle instead, pass `--repeat-after`:
 
 ```bash
-python battery_notifier.py --interval 30 --repeat-after 600   # remind at most every 10 min
+python battery_notifier.py --interval 5 --repeat-after 60   # check every 5s, remind at most every minute
 ```
 
 A change of condition (low → high, or vice versa) always alerts immediately, and
