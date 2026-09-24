@@ -98,14 +98,30 @@ def _fake_win11toast(monkeypatch):
     return sent
 
 
-def test_win11toast_requests_looping_alarm(monkeypatch):
+def test_win11toast_alarm_is_self_dismissing_by_default(monkeypatch):
+    """Loud, but the toast must NOT stay on screen forever."""
     sent = _fake_win11toast(monkeypatch)
     bn.configure_sound("alarm", True, 1)
     assert bn._notify_win11toast("T", "M") is True
-    assert sent["audio"]["loop"] == "true"
     assert "Looping.Alarm" in sent["audio"]["src"]
+    assert sent["audio"]["loop"] == "false"     # no endless looping audio
+    assert "scenario" not in sent               # auto-dismisses
     assert sent["duration"] == "long"
+
+
+def test_win11toast_persistent_opt_in(monkeypatch):
+    sent = _fake_win11toast(monkeypatch)
+    bn.configure_sound("alarm", True, 1, persistent=True)
+    assert bn._notify_win11toast("T", "M") is True
+    assert sent["audio"]["loop"] == "true"
     assert sent["scenario"] == "alarm"
+
+
+def test_alert_toasts_always_tagged(monkeypatch):
+    sent = _fake_win11toast(monkeypatch)
+    bn.configure_sound("alarm", True, 1)
+    bn._notify_win11toast("T", "M")
+    assert sent["tag"] == bn.TOAST_TAG and sent["group"] == bn.TOAST_GROUP
 
 
 def test_win11toast_silent_mode(monkeypatch):
@@ -146,7 +162,13 @@ def test_powershell_toast_embeds_alarm_audio(monkeypatch):
     bn.configure_sound("alarm", True, 1)
     assert bn._notify_powershell("T", "M") is True
     assert "Looping.Alarm" in captured["script"]
+    assert "loop='false'" in captured["script"]     # self-dismissing
+    assert "scenario='alarm'" not in captured["script"]
+
+    bn.configure_sound("alarm", True, 1, persistent=True)
+    bn._notify_powershell("T", "M")
     assert "scenario='alarm'" in captured["script"]
+    assert "loop='true'" in captured["script"]
 
 
 def test_linux_alarm_uses_critical_urgency(monkeypatch):

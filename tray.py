@@ -135,7 +135,8 @@ class TrayApp:
     def _on_cycle_sound(self) -> None:
         """Cycle alarm -> default -> off and preview the new setting."""
         nxt = {"alarm": "default", "default": "off", "off": "alarm"}[bn._SOUND_MODE]
-        bn.configure_sound(nxt, bn._BEEP_ENABLED, bn._BEEP_REPEATS)
+        bn.configure_sound(nxt, bn._BEEP_ENABLED, bn._BEEP_REPEATS,
+                           bn._PERSISTENT_TOAST)
         LOG.info("Sound mode set to %s", nxt)
         bn.notify(f"{bn.APP_NAME} - Sound", f"Sound mode is now '{nxt}'.")
 
@@ -327,7 +328,8 @@ def main(argv=None) -> int:
                         format="%(asctime)s %(levelname)s %(message)s",
                         handlers=handlers)
 
-    bn.configure_sound(args.sound, not args.no_beep, args.beep_repeats)
+    bn.configure_sound(args.sound, not args.no_beep, args.beep_repeats,
+                       args.persistent_toast)
 
     status_file = (None if args.no_status_file
                    else bn.resolve_path(args.status_file, "status.json")

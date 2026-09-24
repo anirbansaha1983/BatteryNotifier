@@ -149,3 +149,76 @@ def test_clear_notifications_survives_errors(monkeypatch):
     mod.clear_toast = boom
     monkeypatch.setitem(sys.modules, "win11toast", mod)
     bn.clear_notifications()        # must not raise
+
+
+# --------------------------------------------------------------------------- #
+# Clearing works for every backend, not just win11toast
+# --------------------------------------------------------------------------- #
+
+def test_powershell_clear_used_when_win11toast_missing(monkeypatch):
+    """winotify / PowerShell toasts must still get cleared."""
+    monkeypatch.setitem(sys.modules, "win11toast", None)
+    captured = {}
+
+    def fake_call(cmd, **kwargs):
+        captured["script"] = cmd[-1]
+        return 0
+
+    monkeypatch.setattr(bn.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(bn.shutil, "which", lambda n: "powershell")
+    monkeypatch.setattr(bn.subprocess, "call", fake_call)
+    bn.clear_notifications()
+    assert "RemoveGroup" in captured["script"]
+    assert bn.TOAST_GROUP in captured["script"]
+    assert "Clear" in captured["script"]
+
+
+def test_win11toast_preferred_over_powershell(fake_win11toast, monkeypatch):
+    calls = []
+    monkeypatch.setattr(bn.subprocess, "call",
+                        lambda *a, **k: calls.append(1) or 0)
+    bn.clear_notifications()
+    assert fake_win11toast["clear"] and calls == []
+
+
+def test_win11toast_falls_back_to_group_clear(monkeypatch):
+    attempts = []
+    mod = types.ModuleType("win11toast")
+
+    def clear_toast(**kw):
+        attempts.append(kw)
+        if "tag" in kw:
+            raise AttributeError("group value is required to clear a toast")
+
+    mod.clear_toast = clear_toast
+    monkeypatch.setitem(sys.modules, "win11toast", mod)
+    bn.clear_notifications()
+    assert len(attempts) == 2 and "tag" not in attempts[1]
+
+
+def test_powershell_clear_skipped_off_windows(monkeypatch):
+    monkeypatch.setattr(bn.platform, "system", lambda: "Linux")
+    assert bn._clear_via_powershell() is False
+
+
+def test_clear_is_noop_when_nothing_available(monkeypatch):
+    monkeypatch.setitem(sys.modules, "win11toast", None)
+    monkeypatch.setattr(bn.platform, "system", lambda: "Linux")
+    bn.clear_notifications()        # must not raise
+
+
+# --------------------------------------------------------------------------- #
+# Default toasts self-dismiss, so nothing can linger
+# --------------------------------------------------------------------------- #
+
+def test_default_toasts_are_not_persistent():
+    bn.configure_sound("alarm", True, 3)
+    assert bn._PERSISTENT_TOAST is False
+
+
+def test_cli_persistent_toast_flag(monkeypatch):
+    monkeypatch.setattr(bn, "notify", lambda t, m, urgent=True: None)
+    bn.main(["--test-notification", "--persistent-toast"])
+    assert bn._PERSISTENT_TOAST is True
+    bn.main(["--test-notification"])
+    assert bn._PERSISTENT_TOAST is False

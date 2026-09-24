@@ -102,6 +102,10 @@ DEFAULT_SOUND = "alarm"
 _SOUND_MODE = DEFAULT_SOUND
 _BEEP_ENABLED = True
 _BEEP_REPEATS = 3
+# When True, alert toasts use scenario='alarm' and stay on screen until
+# dismissed. Off by default: loudness comes from the beep, and persistent
+# toasts pile up / linger after the user has already acted.
+_PERSISTENT_TOAST = False
 
 # Serialises notify() so a silent UI toast cannot leak its temporary sound
 # setting into a concurrent battery alert.
@@ -109,14 +113,15 @@ _NOTIFY_LOCK = threading.RLock()
 
 
 def configure_sound(mode: str = DEFAULT_SOUND, beep: bool = True,
-                    repeats: int = 3) -> None:
+                    repeats: int = 3, persistent: bool = False) -> None:
     """Set how loud/insistent notifications are."""
-    global _SOUND_MODE, _BEEP_ENABLED, _BEEP_REPEATS
+    global _SOUND_MODE, _BEEP_ENABLED, _BEEP_REPEATS, _PERSISTENT_TOAST
     if mode not in SOUND_MODES:
         raise ValueError(f"sound mode must be one of {SOUND_MODES}")
     _SOUND_MODE = mode
     _BEEP_ENABLED = beep
     _BEEP_REPEATS = max(0, int(repeats))
+    _PERSISTENT_TOAST = bool(persistent)
 
 
 def _play_alarm() -> None:
@@ -192,22 +197,73 @@ TOAST_TAG = "battery-alert"
 TOAST_GROUP = "battery-notifier"
 
 
-def clear_notifications() -> None:
-    """Remove any battery alert toasts still showing / in the Action Center.
-
-    Alert toasts use scenario='alarm' so they persist until dismissed. Once the
-    user plugs in (or unplugs) the alert is stale, so take it off the screen
-    instead of leaving a pile of alarms behind.
-    """
+def _clear_via_win11toast() -> bool:
+    """Clear our tagged toasts using win11toast's history helper."""
     try:
         from win11toast import clear_toast  # type: ignore
     except Exception:
-        return
+        return False
     try:
         clear_toast(app_id=APP_NAME, tag=TOAST_TAG, group=TOAST_GROUP)
-        LOG.debug("Cleared stale battery toasts")
+        return True
     except Exception as exc:
-        LOG.debug("Could not clear toasts: %s", exc)
+        LOG.debug("win11toast clear failed: %s", exc)
+    try:  # fall back to clearing the whole group
+        clear_toast(app_id=APP_NAME, group=TOAST_GROUP)
+        return True
+    except Exception as exc:
+        LOG.debug("win11toast group clear failed: %s", exc)
+        return False
+
+
+def _clear_via_powershell() -> bool:
+    """Clear toasts with built-in PowerShell.
+
+    Works no matter which backend published the toast (winotify and the raw
+    PowerShell backend do not expose a clear helper of their own).
+    """
+    if platform.system() != "Windows":
+        return False
+    powershell = shutil.which("powershell") or shutil.which("pwsh")
+    if not powershell:
+        return False
+    script = (
+        "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications,"
+        " ContentType=WindowsRuntime] > $null;"
+        "$h=[Windows.UI.Notifications.ToastNotificationManager]::History;"
+        f"try {{ $h.RemoveGroup('{TOAST_GROUP}', '{APP_NAME}') }} catch {{}};"
+        f"try {{ $h.Clear('{APP_NAME}') }} catch {{}};"
+    )
+    try:
+        return subprocess.call(
+            [powershell, "-NoProfile", "-NonInteractive", "-Command", script],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        ) == 0
+    except Exception as exc:
+        LOG.debug("powershell clear failed: %s", exc)
+        return False
+
+
+def clear_notifications() -> None:
+    """Remove any battery alert toasts still showing / in the Action Center.
+
+    Called as soon as the user takes action (plugs in / unplugs), so a stale
+    alert never stays on screen. Every available mechanism is tried, because
+    the toast may have been published by any of the backends.
+    """
+    cleared = False
+    for clearer in (_clear_via_win11toast, _clear_via_powershell):
+        try:
+            if clearer():
+                cleared = True
+                LOG.debug("Cleared stale battery toasts via %s",
+                          clearer.__name__)
+                break
+        except Exception as exc:  # pragma: no cover - defensive
+            LOG.debug("%s raised: %s", clearer.__name__, exc)
+    if not cleared:
+        LOG.debug("No toast-clearing mechanism available")
 
 
 def _notify_win11toast(title: str, message: str) -> bool:
@@ -224,12 +280,18 @@ def _notify_win11toast(title: str, message: str) -> bool:
         kwargs["tag"] = TOAST_TAG
         kwargs["group"] = TOAST_GROUP
     if _SOUND_MODE == "alarm":
-        # Looping alarm audio + long duration so the toast stays on screen
-        # until dismissed, instead of vanishing after a few seconds.
-        kwargs["audio"] = {"src": "ms-winsoundevent:Notification.Looping.Alarm",
-                           "loop": "true"}
         kwargs["duration"] = "long"
-        kwargs["scenario"] = "alarm"
+        if _PERSISTENT_TOAST:
+            # Opt-in: looping audio + alarm scenario keeps the toast on screen
+            # until dismissed. Requires the clearing logic to tidy up after.
+            kwargs["audio"] = {"src": "ms-winsoundevent:Notification.Looping.Alarm",
+                               "loop": "true"}
+            kwargs["scenario"] = "alarm"
+        else:
+            # Loud but self-dismissing: a single (non-looping) alarm sound.
+            # The winsound chirp supplies the real volume.
+            kwargs["audio"] = {"src": "ms-winsoundevent:Notification.Looping.Alarm",
+                               "loop": "false"}
     elif _SOUND_MODE == "off":
         kwargs["audio"] = {"silent": "true"}
         kwargs["duration"] = "short"
@@ -261,7 +323,7 @@ def _notify_winotify(title: str, message: str) -> bool:
                          duration="long" if _SOUND_MODE == "alarm" else "short")
         try:
             if _SOUND_MODE == "alarm":
-                t.set_audio(audio.LoopingAlarm, loop=True)
+                t.set_audio(audio.LoopingAlarm, loop=_PERSISTENT_TOAST)
             elif _SOUND_MODE == "default":
                 t.set_audio(audio.Default, loop=False)
         except Exception:
@@ -281,9 +343,10 @@ def _notify_powershell(title: str, message: str) -> bool:
     safe_title = title.replace("'", "''")
     safe_message = message.replace("'", "''")
     if _SOUND_MODE == "alarm":
+        loop = "true" if _PERSISTENT_TOAST else "false"
         audio_xml = ("<audio src='ms-winsoundevent:Notification.Looping.Alarm' "
-                     "loop='true'/>")
-        scenario = " scenario='alarm'"
+                     f"loop='{loop}'/>")
+        scenario = " scenario='alarm'" if _PERSISTENT_TOAST else ""
     elif _SOUND_MODE == "off":
         audio_xml = "<audio silent='true'/>"
         scenario = ""
@@ -612,6 +675,10 @@ def parse_args(argv=None) -> argparse.Namespace:
                         "(the toast sound is still used).")
     p.add_argument("--beep-repeats", type=int, default=3, metavar="N",
                    help="How many times to repeat the alarm tone (default 3).")
+    p.add_argument("--persistent-toast", action="store_true",
+                   help="Keep the alert toast on screen until dismissed "
+                        "(scenario=alarm, looping audio). Off by default "
+                        "because such toasts linger after you plug in/unplug.")
     p.add_argument("-v", "--verbose", action="store_true", help="Debug logging.")
     return p.parse_args(argv)
 
@@ -686,7 +753,8 @@ def main(argv=None) -> int:
                         format="%(asctime)s %(levelname)s %(message)s",
                         handlers=handlers)
 
-    configure_sound(args.sound, not args.no_beep, args.beep_repeats)
+    configure_sound(args.sound, not args.no_beep, args.beep_repeats,
+                    args.persistent_toast)
 
     if args.status:
         return print_status(resolve_path(args.status_file, "status.json")

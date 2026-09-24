@@ -31,9 +31,8 @@ python battery_notifier.py --test-notification
 Windows mixes toast audio under the quiet **Notifications** volume channel, so
 the standard ding is easy to miss. By default this app therefore:
 
-1. asks for the **looping alarm** toast sound (`ms-winsoundevent:Notification.Looping.Alarm`)
-   with `scenario=alarm`, so the toast **stays on screen until you dismiss it**
-   instead of vanishing after ~5 seconds;
+1. asks for the **alarm** toast sound (`ms-winsoundevent:Notification.Looping.Alarm`)
+   and a long display duration;
 2. plays its **own rising two-tone chirp** ×3 plus the system *Exclamation*
    sound via `winsound`, which uses the normal system volume and so is audible
    even when notification audio is turned down;
@@ -41,11 +40,16 @@ the standard ding is easy to miss. By default this app therefore:
 
 The alarm is played on a background thread, so it never delays monitoring.
 
-Alert toasts are published with a fixed **tag/group**, so each repeat *replaces*
-the previous one instead of stacking up in the Action Center. As soon as you
-take action — plug in when low, unplug when charged — the alerts stop and any
-toast still on screen is **cleared automatically** (also on exit, and when one
-alert type supersedes the other).
+Alert toasts **auto-dismiss** and are published with a fixed **tag/group**, so
+each repeat *replaces* the previous one instead of stacking up in the Action
+Center. As soon as you take action — plug in when low, unplug when charged — the
+alerts stop and any toast still on screen is **cleared automatically** (also on
+exit, and when one alert type supersedes the other). Clearing works with
+`win11toast` or, failing that, built-in PowerShell, so it applies whichever
+backend published the toast.
+
+If you *want* an alert that stays put until you dismiss it, pass
+`--persistent-toast`.
 
 Only **battery alerts** get this loud treatment. Confirmations for things you
 just clicked in the tray menu (threshold changed, invalid value, status summary)
@@ -253,6 +257,7 @@ python battery_notifier.py -v                     # debug logging
 | `--sound` | `alarm` | `alarm` / `default` / `off` (see below) |
 | `--no-beep` | off | Skip the extra audible alarm tone |
 | `--beep-repeats` | 3 | How many times to repeat the alarm tone |
+| `--persistent-toast` | off | Keep the toast on screen until dismissed |
 
 ### Repeat behaviour
 
