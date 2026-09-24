@@ -222,3 +222,50 @@ def test_cli_persistent_toast_flag(monkeypatch):
     assert bn._PERSISTENT_TOAST is True
     bn.main(["--test-notification"])
     assert bn._PERSISTENT_TOAST is False
+
+
+# --------------------------------------------------------------------------- #
+# Version reporting (detecting a stale running process)
+# --------------------------------------------------------------------------- #
+
+def test_status_file_records_version(tmp_path, monkeypatch):
+    import json as _json
+    sf = tmp_path / "status.json"
+    monkeypatch.setattr(bn, "read_battery", lambda: st(55, False))
+    bn.Notifier(status_file=sf).check()
+    assert _json.loads(sf.read_text())["version"] == bn.__version__
+
+
+def test_status_warns_when_running_old_version(tmp_path, capsys):
+    import os as _os
+    sf = tmp_path / "status.json"
+    bn.write_status(sf, {"pid": _os.getpid(), "version": "0.0.1",
+                         "checks": 5, "notifications_sent": 1,
+                         "thresholds": {"low": 30, "high": 80},
+                         "battery": None})
+    bn.print_status(sf)
+    out = capsys.readouterr().out
+    assert "OUT OF DATE" in out and "0.0.1" in out
+
+
+def test_status_quiet_when_version_matches(tmp_path, capsys):
+    import os as _os
+    sf = tmp_path / "status.json"
+    bn.write_status(sf, {"pid": _os.getpid(), "version": bn.__version__,
+                         "checks": 5, "notifications_sent": 1,
+                         "thresholds": {"low": 30, "high": 80},
+                         "battery": None})
+    bn.print_status(sf)
+    assert "OUT OF DATE" not in capsys.readouterr().out
+
+
+def test_status_handles_missing_version(tmp_path, capsys):
+    import os as _os
+    sf = tmp_path / "status.json"
+    bn.write_status(sf, {"pid": _os.getpid(), "checks": 1,
+                         "notifications_sent": 0,
+                         "thresholds": {"low": 30, "high": 80},
+                         "battery": None})
+    bn.print_status(sf)
+    out = capsys.readouterr().out
+    assert "pre-1.3.0 build" in out and "OUT OF DATE" in out

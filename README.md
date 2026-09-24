@@ -140,6 +140,11 @@ powershell -ExecutionPolicy Bypass -File .\windows\install_task.ps1 -Tray
 Because the app runs under `pythonw.exe` there is **no window** — that is normal.
 Verify it in any of these ways.
 
+> **Updated the app? Restart it.** A process started earlier keeps running the
+> **old code** until restarted — `--status` now prints `*** OUT OF DATE ***`
+> when that happens. Double-click **`windows\restart.bat`** to stop the old
+> copy (and clear any toasts it left behind) and start the current one.
+
 **1. Ask the app (most reliable).** It writes a heartbeat file after every check:
 
 ```bash
@@ -214,6 +219,7 @@ powershell -ExecutionPolicy Bypass -File .\windows\install_task.ps1
   `REPEAT_AFTER` variables at the top to tune it. Double-click to run manually.
 - `windows\run_tray.bat` — same, but with a **system tray icon** (see above).
 - `windows\status.bat` — reports whether the monitor is currently running.
+- `windows\restart.bat` — stops any running copy and starts the current code.
 - `windows\install_task.bat` — double-clickable wrapper that runs the installer
   below with an execution-policy bypass (and `Unblock-File`s it first).
 - `windows\install_task.ps1` — registers a **Task Scheduler** job that runs the

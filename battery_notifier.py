@@ -92,6 +92,10 @@ def _notify_macos(title: str, message: str) -> bool:
 
 
 APP_NAME = "Battery Notifier"
+# Bumped whenever behaviour changes in a way users should restart to pick up.
+# The running process records this in status.json so --status can tell you when
+# an old copy is still running.
+__version__ = "1.3.0"
 
 # Sound behaviour. "alarm" = loud looping alarm, "default" = normal toast ding,
 # "off" = silent toast.
@@ -560,6 +564,7 @@ class Notifier:
         write_status(self.status_file, {
             "pid": os.getpid(),
             "app": APP_NAME,
+            "version": __version__,
             "running_since": datetime.fromtimestamp(self._started).isoformat(timespec="seconds"),
             "last_check": datetime.now().isoformat(timespec="seconds"),
             "checks": self._checks,
@@ -724,6 +729,16 @@ def print_status(status_file: Path) -> int:
     thresholds = data.get("thresholds", {})
     print(f"  thresholds   : low<={thresholds.get('low')}%  "
           f"high>={thresholds.get('high')}%")
+
+    running_version = data.get("version")
+    print(f"  version      : {running_version or 'unknown (pre-1.3.0 build)'}"
+          f"   (installed: {__version__})")
+    if alive and running_version != __version__:
+        print()
+        print("  *** OUT OF DATE ***")
+        print("  The running process started before the current code was")
+        print("  installed, so it does NOT have the latest fixes.")
+        print(f"  Stop it (Stop-Process -Id {pid}) and start it again.")
     return 0 if alive else 1
 
 
