@@ -129,6 +129,36 @@ It accepts the same options as the CLI (`--low`, `--high`, `--interval`,
 > Personalization > Taskbar > Other system tray icons* and switch **pythonw.exe**
 > on to pin it permanently.
 
+### Shortcut icon on the desktop
+
+Windows will not put a custom icon on a `.bat` file — double-clicking
+`run_tray.bat` works, but its shortcut keeps the generic batch glyph. To get the
+battery icon on a shortcut instead:
+
+```bat
+windows\set_shortcut_icon.bat                    :: Desktop + Start Menu
+windows\set_shortcut_icon.bat --where desktop    :: Desktop only
+windows\set_shortcut_icon.bat --remove           :: undo
+```
+
+That creates a `.lnk` called **Battery Notifier (Tray)** which runs
+`run_tray.bat` minimised and takes its icon from
+`assets\battery-notifier.ico`. Only shortcut files are written — nothing is
+installed system-wide, and `--remove` deletes them again.
+
+The icon is redrawn in code, so it is easy to regenerate:
+
+```bash
+python assets/make_icon.py           # rebuild the .ico/.png
+python assets/make_icon.py --check   # fail if they are missing
+```
+
+`assets/battery-notifier.ico` holds nine sizes (16, 20, 24, 32, 40, 48, 64,
+128, 256 px); the small frames are stored uncompressed so they stay crisp in
+shortcut and Start-menu lists, while 128/256 px are PNG-compressed. If the new
+icon does not show up immediately, press <kbd>F5</kbd> in the folder — Windows
+caches shell icons aggressively and sometimes needs a sign-out.
+
 To start the tray version at logon instead of the headless one:
 
 ```powershell
@@ -220,6 +250,8 @@ powershell -ExecutionPolicy Bypass -File .\windows\install_task.ps1
 - `windows\run_tray.bat` — same, but with a **system tray icon** (see above).
 - `windows\status.bat` — reports whether the monitor is currently running.
 - `windows\restart.bat` — stops any running copy and starts the current code.
+- `windows\set_shortcut_icon.bat` — puts the battery icon on a Desktop /
+  Start Menu shortcut to `run_tray.bat` (see *Shortcut icon* above).
 - `windows\install_task.bat` — double-clickable wrapper that runs the installer
   below with an execution-policy bypass (and `Unblock-File`s it first).
 - `windows\install_task.ps1` — registers a **Task Scheduler** job that runs the
@@ -289,3 +321,7 @@ the reminder counter resets once the battery returns to the normal range.
 ```bash
 pip install pytest && pytest
 ```
+
+122 tests, covering the threshold logic, tray menu, sound layer, toast
+lifecycle, status/heartbeat reporting, and the icon assets (frame sizes,
+32-bit encoding, and the shortcut generator).
